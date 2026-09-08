@@ -257,7 +257,7 @@ def generate(vlm, processor, pixel_values, prompt, image, device,
 # ---------------------------------------------------------------------------
 # Attack Loop for a single image
 # ---------------------------------------------------------------------------
-def run_attack_for_image(device, vlm, processor, h_safe, prompt_desc, prompt_safety, target_image, direction, args):
+def run_attack_for_image(device, vlm, processor, h_safe, prompt_desc, prompt_safety, target_image, pair_id, direction, args):
     # Get clean description reference for this image
         with torch.no_grad():
             inputs_d = prepare_inputs(processor, target_image, prompt_desc, device)
@@ -305,9 +305,11 @@ def run_attack_for_image(device, vlm, processor, h_safe, prompt_desc, prompt_saf
         print(f"\n  delta L_inf: {delta_linf:.6f}")
         print(f"  delta L_2:   {delta_l2:.4f}")
 
+
         # Save results
         results = {
-            "target_image": args.pair_id,
+            "target_image": pair_id,
+            "direction": direction,
             "layer": args.layer,
             "pool": args.pool,
             "pgd_steps": args.pgd_steps,
@@ -324,7 +326,7 @@ def run_attack_for_image(device, vlm, processor, h_safe, prompt_desc, prompt_saf
             "final_desc_drift": loss_history[-1]["loss_desc"],
         }
 
-        with open(os.path.join(args.output_dir, "results.json"), "w") as f:
+        with open(os.path.join(args.output_dir, "results.json"), "a") as f:
             json.dump(results, f, indent=2)
 
 
@@ -359,19 +361,22 @@ def main():
 
 
     for pair_id in os.listdir(args.input_dir):
+        ## Ignore "." folders
+        if pair_id.startswith('.'):
+            continue
         # Pick target image to attack (person with a knife cooking, index 7)
         # This is an interesting case: a benign image that has ambiguous
         # safety-adjacent content
         print("\n=== Loading target images ===")
         target_image_s = Image.open(f"./sorted/{pair_id}/safe.jpg")
         target_image_h = Image.open(f"./sorted/{pair_id}/harmful.jpg")
-        print(f"  Target ID {args.pair_id} loaded")
+        print(f"  Target ID {pair_id} loaded")
 
         print(f"\n=== Running attack for {pair_id}/safe.png")
-        run_attack_for_image(device, vlm, processor, h_safe, prompt_desc, prompt_safety, target_image_s, -1, args)
+        run_attack_for_image(device, vlm, processor, h_safe, prompt_desc, prompt_safety, target_image_s, pair_id, -1, args)
 
         print(f"\n=== Running attack for {pair_id}/harmful.png")
-        run_attack_for_image(device, vlm, processor, h_safe, prompt_desc, prompt_safety, target_image_h, 1, args)
+        run_attack_for_image(device, vlm, processor, h_safe, prompt_desc, prompt_safety, target_image_h, pair_id, 1, args)
         
 
     # # ---------------------------------------------------------------------------
@@ -417,7 +422,7 @@ def main():
     # fig, ax = plt.subplots(1, 1, figsize=(12, 6))
     # ax.axis("off")
     # text = (
-    #     f"Target: Pair {args.pair_id}\n"
+    #     f"Target: Pair {pair_id}\n"
     #     f"PGD steps: {args.pgd_steps}, epsilon: {args.epsilon}, "
     #     f"mu: {args.mu}, layer: {args.layer}, pool: {args.pool}\n"
     #     f"delta L_inf: {delta_linf:.6f}\n\n"
