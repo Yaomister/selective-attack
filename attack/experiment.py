@@ -7,12 +7,9 @@ import json
 import time
 import torch
 import argparse
-import numpy as np
 import transformers
-import urllib.request
 from PIL import Image
 from pathlib import Path
-import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -59,7 +56,7 @@ def load_vlm(args):
 
     processor = transformers.AutoProcessor.from_pretrained(model_id)
 
-    model = model = transformers.AutoModelForImageTextToText.from_pretrained(
+    model = transformers.AutoModelForImageTextToText.from_pretrained(
         model_id, torch_dtype=torch.float32,
         device_map=device, low_cpu_mem_usage=True,
     )
@@ -100,18 +97,18 @@ def get_hidden(vlm, inputs, pixel_values, args):
         return hidden_states[args.layer_from_last][:, -1, :]  
     elif args.pooling_method == "mean":
         # (batch_size, hidden_dim)
-        return hidden_states.mean[args.layer_from_last](dim=1)  
+        return hidden_states[args.layer_from_last].mean(dim=1)  
 
     # image tokens only
     masked = inputs["input_ids"][0] == vlm.config.image_token_index
-    return hidden_states[args.layer_from_last][:, masked, :]
+    return hidden_states[args.layer_from_last][:, masked, :].mean(dim = 1)
 
 
 def compute_references(vlm, processor, images, prompt_safety, prompt_description, args):
     """
     Compute the centroid of safe images under safety prompt, and per-image descrption references.
     """
-    safe_references = []
+    safety_references = []
     description_references = []
 
     for i, img in enumerate(images):
@@ -119,7 +116,7 @@ def compute_references(vlm, processor, images, prompt_safety, prompt_description
             # calculate the hidden states for the safety inputs
             safe_inputs = prepare_inputs(processor, img, prompt_safety)
             hidden_states_safe = get_hidden(vlm, safe_inputs, safe_inputs["pixel_values"], args)
-            safe_references.append(hidden_states_safe)
+            safety_references.append(hidden_states_safe)
 
             # calculate the hidden states for the description inputs
             description_inputs = prepare_inputs(processor, img, prompt_description)
@@ -129,8 +126,8 @@ def compute_references(vlm, processor, images, prompt_safety, prompt_description
         print(f"Reference image {i+1}/{len(images)}")
 
     # Calculate the mean safety centroid
-    safe_centroid = torch.stack(safe_references).mean(dim=0)
-    return safe_centroid, description_references
+    safety_centroid = torch.stack(safety_references).mean(dim=0)
+    return safety_centroid, description_references
 
 
 
@@ -145,11 +142,19 @@ def attack(vlm, processor, image, safe_centroid, hidden_states_description_clean
 
     Combined: minimize -L_safety + mu * L_desc
     """
+
+    # dimensions for broadcasting
+    mean = torch.tensor(processor.image_processor.image_mean, device=device).view(1,3,1,1)
+    std = torch.tensor(processor.image_processor.image_std, device=device).view(1, 3, 1, 1)
+
+    to_pixel = lambda nv: nv * std + mean
+    to_normalised = lambda pv: (pv - mean)/std
+
     inputs_safety = prepare_inputs(processor, image, prompt_safety)
     inputs_description = prepare_inputs(processor, image, prompt_description)
 
-    clean_pixels_safety = inputs_safety["pixel_values"].detach().clone()
-    clean_pixels_description = inputs_description["pixel_values"].detach().clone()
+    clean_pixels_safety = to_pixel(inputs_safety["pixel_values"].detach().clone())
+    clean_pixels_description = to_pixel(inputs_description["pixel_values"].detach().clone())
 
     # the noise we're adding
     delta = torch.zeros_like(clean_pixels_safety, requires_grad=True)
@@ -158,16 +163,16 @@ def attack(vlm, processor, image, safe_centroid, hidden_states_description_clean
 
     for step in range(args.steps):
 
-        # Safety pathway: push AWAY from safe
+        # Safety pathway: push AWAY from the reference
         perturbed_safety = (clean_pixels_safety + delta).clamp(0, 1)
 
-        hidden_states_safety_perturbed = get_hidden(vlm, inputs_safety, perturbed_safety, args)
+        hidden_states_safety_perturbed = get_hidden(vlm, inputs_safety, to_normalised(perturbed_safety), args)
         # the MSE distance between the clean hidden centroid
         loss_safety = F.mse_loss(hidden_states_safety_perturbed, safe_centroid.detach())
 
         # Description pathway: stay CLOSE to clean
         perturbed_description = (clean_pixels_description + delta).clamp(0, 1)
-        hidden_states_description_perturbed = get_hidden(vlm, inputs_description, perturbed_description, args)
+        hidden_states_description_perturbed = get_hidden(vlm, inputs_description, to_normalised(perturbed_description), args)
         loss_description = F.mse_loss(hidden_states_description_perturbed, hidden_states_description_clean.detach())
 
         # We want to MAXIMIZE loss_safety and MINIMIZE loss_desc
@@ -201,7 +206,7 @@ def attack(vlm, processor, image, safe_centroid, hidden_states_description_clean
     torch.cuda.empty_cache()
 
     perturbed_final = (clean_pixels_safety + delta).clamp(0, 1).detach()
-    return perturbed_final, delta.detach(), loss_history
+    return to_normalised(perturbed_final), delta.detach(), loss_history
 
 
 def generate(vlm, processor, pixel_values, prompt, image, max_tokens=150):
@@ -224,10 +229,10 @@ def generate(vlm, processor, pixel_values, prompt, image, max_tokens=150):
         ids[0][input_len:], skip_special_tokens=True
     ).strip()
 
-def run_attack_for_image(device, vlm, processor, safe_centroid, prompt_description, prompt_safety, image, image_id, direction,  args):
+def run_attack_for_image(device, vlm, processor, reference_centroid, prompt_description, prompt_safety, image, image_id, direction,  args):
     # Get clean description reference for this image
     with torch.no_grad():
-        inputs_d = prepare_inputs(processor, image, prompt_description, device)
+        inputs_d = prepare_inputs(processor, image, prompt_description)
         hidden_states_description_clean = get_hidden(
             vlm, inputs_d, inputs_d["pixel_values"], args
         )
@@ -235,7 +240,7 @@ def run_attack_for_image(device, vlm, processor, safe_centroid, prompt_descripti
     # Get clean responses before attack
     print("\n=== Clean responses ===")
     inputs_clean = prepare_inputs(
-        processor, image, prompt_safety, device
+        processor, image, prompt_safety
     )
     clean_pixels = inputs_clean["pixel_values"].detach()
 
@@ -251,17 +256,17 @@ def run_attack_for_image(device, vlm, processor, safe_centroid, prompt_descripti
     # Run attack
     print(f"\n=== Running PGD ({args.steps} steps, eps={args.epsilon}) ===")
     perturbed, delta, loss_history = attack(
-        vlm, processor, image, safe_centroid, hidden_states_description_clean,
+        vlm, processor, image, reference_centroid, hidden_states_description_clean,
         prompt_safety, prompt_description, direction, args
     )
 
     # Get perturbed responses
     print("\n=== Perturbed responses ===")
     safety_perturbed = generate(
-        vlm, processor, perturbed, prompt_safety, image, device
+        vlm, processor, perturbed, prompt_safety, image
     )
     description_perturbed = generate(
-        vlm, processor, perturbed, prompt_description, image, device
+        vlm, processor, perturbed, prompt_description, image
     )
     print(f"  Safety (pert):  {safety_perturbed}")
     print(f"  Desc (pert):    {description_perturbed[:200]}")
@@ -334,20 +339,23 @@ def main():
 
     print(f"Found {len(pairs)} pairs in {dataset_dir}")
     
-    if not pairs or not safe_reference_images:
+    if not pairs:
         print("No pairs found.")
         return
 
-    safe_centroid, description_references = compute_references(
+    safe_centroid, _ = compute_references(
             vlm, processor, safe_reference_images, prompt_safety, prompt_description, args
         )
 
+
     for pair_id, harmful_image, safe_image in pairs:
         print(f"Running attack for image {pair_id}")
+        # safe to harmful
         run_attack_for_image(device, vlm, processor, safe_centroid,
                              prompt_description, prompt_safety,
                              safe_image, f"{pair_id}_safe", -1.0, args)
-        
+
+        # harmful to safe
         run_attack_for_image(device, vlm, processor, safe_centroid,
                              prompt_description, prompt_safety,
                              harmful_image, f"{pair_id}_harmful", 1.0, args)
