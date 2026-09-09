@@ -19,7 +19,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     # the number of steps when attacking
     p.add_argument("--steps", type=int, default=200)
-    # the bounds for the perturbance 
+    # the bounds for the perturbance  
     p.add_argument("--epsilon", type=float, default=0.03)
     # the learning rate
     p.add_argument("--alpha", type=float, default=0.001)
@@ -57,7 +57,7 @@ def load_vlm(args):
     processor = transformers.AutoProcessor.from_pretrained(model_id)
 
     model = transformers.AutoModelForImageTextToText.from_pretrained(
-        model_id, torch_dtype=torch.float32,
+        model_id, torch_dtype=torch.float16,
         device_map=device, low_cpu_mem_usage=True,
     )
     model.eval()
@@ -202,8 +202,8 @@ def attack(vlm, processor, image, safe_centroid, hidden_states_description_clean
             print(f"  Step {step:4d}: safety_dist={loss_safety.item():.4f}  "
                   f"desc_drift={loss_description.item():.4f}  "
                   f"total={loss.item():.4f}")
-
-    torch.cuda.empty_cache()
+        del hidden_states_safety_perturbed, hidden_states_description_perturbed
+        torch.cuda.empty_cache()
 
     perturbed_final = (clean_pixels_safety + delta).clamp(0, 1).detach()
     return to_normalised(perturbed_final), delta.detach(), loss_history
@@ -297,8 +297,11 @@ def run_attack_for_image(device, vlm, processor, reference_centroid, prompt_desc
         "final_description_drift": loss_history[-1]["loss_description"],
     }
 
-    with open(os.path.join(args.output_dir, f"results_{args.pooling_method}_{args.layer_from_last}_{args.model_name}_mu{args.mu}_epsilon{args.epsilon}_{direction}_{image_id}.json"), "w") as f:
-        json.dump(results, f, indent=2)
+    out_path = os.path.join(args.output_dir, "results.jsonl")
+    with open(out_path, "a") as f:
+        f.write(json.dumps(results) + "\n")
+        f.flush()
+    print("SAVED:", os.path.abspath(out_path))
 
 
 def process_dataset(dataset_dir):
