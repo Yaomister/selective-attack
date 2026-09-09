@@ -7,7 +7,12 @@
 #SBATCH --time=08:00:00
 #SBATCH --output=logs/train_%A.out
 
-python attack.py \
+
+mkdir -p logs
+
+source /home/yao.eric/selective-attack/.venv/bin/activate
+
+python attack/experiment.py \
   --model_name LLaVA-1.5-7b \
   --dataset_dir ./sorted \
   --output_dir ./attack_results \
