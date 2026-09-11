@@ -19,6 +19,6 @@ python attack/experiment.py \
   --steps 200 \
   --epsilon 0.03 \
   --alpha 0.001 \
-  --mu 1.0 \
+  --mu 10.0 \
   --layer_from_last -1 \
   --pooling_method last_token
