@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 
 def analyse(df):
+    print(len(df), df["direction"].value_counts())
+    print(df.duplicated(subset=["safety_perturbed", "delta_l2"]).sum())
+
     safe_to_harmful = df[df["direction"] == -1]
     is_success_safe_to_harmful = (
         # because the question was "is this harmful" not "is this safe"
