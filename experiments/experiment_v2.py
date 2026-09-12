@@ -20,9 +20,10 @@ Usage:
 
 import argparse
 import gc
-import json
 import os
+import json
 import time
+import transformers
 import urllib.request
 
 import numpy as np
@@ -80,28 +81,39 @@ def load_image(idx=0):
     return Image.open(path).convert("RGB"), cid
 
 
-# ---------------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------------
-def load_vlm(device):
-    from transformers import LlavaNextForConditionalGeneration, LlavaNextProcessor
 
-    model_id = "llava-hf/llama3-llava-next-8b-hf"
-    print(f"Loading {model_id} ...")
+def load_vlm(args):
+    """Load the VLM model."""
+    model_ids = {
+        "LLaVA-1.5-7b": "llava-hf/llava-1.5-7b-hf", 
+        "LLaVA-NeXT": "llava-hf/llama3-llava-next-8b-hf",
+        "InternVL": "OpenGVLab/InternVL3-8B-hf",
+        "Qwen-VL": "Qwen/Qwen2.5-VL-7B-Instruct"
+        }
+    
+    assert args.model_name in model_ids, "unknown vlm model."
+
+    model_id = model_ids[args.model_name]
     t0 = time.time()
-    processor = LlavaNextProcessor.from_pretrained(model_id)
-    model = LlavaNextForConditionalGeneration.from_pretrained(
+
+    print(f"Loading {args.model_name} ...")
+
+    processor = transformers.AutoProcessor.from_pretrained(model_id)
+
+    model = transformers.AutoModelForImageTextToText.from_pretrained(
         model_id, torch_dtype=torch.float16,
         device_map=device, low_cpu_mem_usage=True,
     )
     model.eval()
+    for param in model.parameters():
+        param.requires_grad_(False)
+
     print(f"  Loaded in {time.time()-t0:.1f}s")
+
     return model, processor
 
 
-# ---------------------------------------------------------------------------
-# Hidden state extraction
-# ---------------------------------------------------------------------------
+
 def prepare_inputs(processor, image, prompt, device):
     conversation = [
         {"role": "user", "content": [
@@ -133,9 +145,6 @@ def get_hidden(vlm, inputs, pixel_values, layer_idx, pool_method):
     return pool_hidden(h, pool_method)
 
 
-# ---------------------------------------------------------------------------
-# Reference embeddings
-# ---------------------------------------------------------------------------
 def compute_references(vlm, processor, images, prompt_safety, prompt_desc,
                        args):
     """
@@ -166,9 +175,6 @@ def compute_references(vlm, processor, images, prompt_safety, prompt_desc,
     return h_safe, desc_refs
 
 
-# ---------------------------------------------------------------------------
-# Attack
-# ---------------------------------------------------------------------------
 def attack(vlm, processor, image, h_safe, h_desc_clean, prompt_safety,
            prompt_desc, direction, args):
     """
@@ -183,11 +189,17 @@ def attack(vlm, processor, image, h_safe, h_desc_clean, prompt_safety,
     """
     device = args.device
 
+    mean = torch.tensor(processor.image_processor.image_mean, device=device).view(1,3,1,1)
+    std = torch.tensor(processor.image_processor.image_std, device=device).view(1, 3, 1, 1)
+
+    to_pixel = lambda nv: nv * std + mean
+    to_normalised = lambda pv: (pv - mean)/std
+
     inputs_safety = prepare_inputs(processor, image, prompt_safety, device)
     inputs_desc = prepare_inputs(processor, image, prompt_desc, device)
 
-    clean_pix_s = inputs_safety["pixel_values"].detach().clone()
-    clean_pix_d = inputs_desc["pixel_values"].detach().clone()
+    clean_pix_s = to_pixel(inputs_safety["pixel_values"].detach().clone())
+    clean_pix_d = to_pixel(inputs_desc["pixel_values"].detach().clone())
 
     delta = torch.zeros_like(clean_pix_s, requires_grad=True)
 
@@ -196,13 +208,13 @@ def attack(vlm, processor, image, h_safe, h_desc_clean, prompt_safety,
     for step in range(args.pgd_steps):
         # Safety pathway: push AWAY from safe
         perturbed_s = (clean_pix_s + delta).clamp(0, 1)
-        h_s = get_hidden(vlm, inputs_safety, perturbed_s,
+        h_s = get_hidden(vlm, inputs_safety, to_normalised(perturbed_s),
                          args.layer, args.pool)
         loss_safety = F.mse_loss(h_s, h_safe.detach())
 
         # Description pathway: stay CLOSE to clean
         perturbed_d = (clean_pix_d + delta).clamp(0, 1)
-        h_d = get_hidden(vlm, inputs_desc, perturbed_d,
+        h_d = get_hidden(vlm, inputs_desc, to_normalised(perturbed_d),
                          args.layer, args.pool)
         loss_desc = F.mse_loss(h_d, h_desc_clean.detach())
 
@@ -236,7 +248,7 @@ def attack(vlm, processor, image, h_safe, h_desc_clean, prompt_safety,
         torch.cuda.empty_cache()
 
     perturbed_final = (clean_pix_s + delta).clamp(0, 1).detach()
-    return perturbed_final, delta.detach(), loss_history
+    return to_normalised(perturbed_final), delta.detach(), loss_history
 
 
 # ---------------------------------------------------------------------------
@@ -378,69 +390,6 @@ def main():
         print(f"\n=== Running attack for {pair_id}/harmful.png")
         run_attack_for_image(device, vlm, processor, h_safe, prompt_desc, prompt_safety, target_image_h, pair_id, 1, args)
         
-
-    # # ---------------------------------------------------------------------------
-    # # Plots
-    # # ---------------------------------------------------------------------------
-    # fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-
-    # steps = [h["step"] for h in loss_history]
-
-    # # Loss curves
-    # ax = axes[0]
-    # ax.plot(steps, [h["loss_safety"] for h in loss_history],
-    #         label="safety dist (want HIGH)", color="tab:blue")
-    # ax.plot(steps, [h["loss_desc"] for h in loss_history],
-    #         label="desc drift (want LOW)", color="tab:orange")
-    # ax.set_xlabel("PGD step")
-    # ax.set_ylabel("MSE")
-    # ax.set_title("Hidden-state attack losses")
-    # ax.legend()
-
-    # # Safety distance over steps
-    # ax = axes[1]
-    # ax.plot(steps, [h["loss_safety"] for h in loss_history], color="tab:blue")
-    # ax.set_xlabel("PGD step")
-    # ax.set_ylabel("MSE from safe centroid")
-    # ax.set_title("Safety dist (higher = more 'harmful')")
-
-    # # Desc drift over steps
-    # ax = axes[2]
-    # ax.plot(steps, [h["loss_desc"] for h in loss_history], color="tab:orange")
-    # ax.set_xlabel("PGD step")
-    # ax.set_ylabel("MSE from clean desc")
-    # ax.set_title("Description drift (lower = better preserved)")
-
-    # plt.tight_layout()
-    # plt.savefig(os.path.join(args.output_dir, "attack_curves.png"),
-    #             dpi=150, bbox_inches="tight")
-    # plt.savefig(os.path.join(args.output_dir, "attack_curves.pdf"),
-    #             bbox_inches="tight")
-    # plt.close()
-
-    # # Response comparison
-    # fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-    # ax.axis("off")
-    # text = (
-    #     f"Target: Pair {pair_id}\n"
-    #     f"PGD steps: {args.pgd_steps}, epsilon: {args.epsilon}, "
-    #     f"mu: {args.mu}, layer: {args.layer}, pool: {args.pool}\n"
-    #     f"delta L_inf: {delta_linf:.6f}\n\n"
-    #     f"--- SAFETY PROMPT ---\n"
-    #     f"Clean:     {safety_clean}\n\n"
-    #     f"Perturbed: {safety_pert}\n\n"
-    #     f"--- DESCRIPTION PROMPT ---\n"
-    #     f"Clean:     {desc_clean[:300]}\n\n"
-    #     f"Perturbed: {desc_pert[:300]}"
-    # )
-    # ax.text(0.02, 0.98, text, transform=ax.transAxes, fontsize=9,
-    #         verticalalignment="top", fontfamily="monospace", wrap=True)
-    # plt.tight_layout()
-    # plt.savefig(os.path.join(args.output_dir, "responses.png"),
-    #             dpi=150, bbox_inches="tight")
-    # plt.close()
-
-    # print(f"\nAll outputs saved to {args.output_dir}/")
 
 
 if __name__ == "__main__":
