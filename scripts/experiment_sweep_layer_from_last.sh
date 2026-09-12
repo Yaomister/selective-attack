@@ -12,7 +12,7 @@ mkdir -p logs
 
 source /home/yao.eric/selective-attack/.venv/bin/activate
 
-LAYERS=(-1 -2 -4 -8 -16 -24)   
+LAYERS=(-1 -2 -4 -8 -16)   
 LAYER=${LAYERS[$SLURM_ARRAY_TASK_ID]}
 
 python attack/experiment.py \
