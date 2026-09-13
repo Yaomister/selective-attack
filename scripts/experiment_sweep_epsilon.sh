@@ -6,13 +6,13 @@
 #SBATCH --mem=48G
 #SBATCH --time=08:00:00
 #SBATCH --output=logs/mu_%A_%a.out
-#SBATCH --array=0-4
+#SBATCH --array=0-5
 
 mkdir -p logs
 
 source /home/yao.eric/selective-attack/.venv/bin/activate
 
-EPSILONS=(0.03 0.06 0.09 0.12)
+EPSILONS=(0.001 0.005 0.01 0.025 0.05 0.1)
 EPSILON=${EPSILONS[$SLURM_ARRAY_TASK_ID]}
 
 python experiments/experiment_v3.py \
