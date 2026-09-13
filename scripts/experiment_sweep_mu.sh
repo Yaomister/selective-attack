@@ -15,7 +15,7 @@ source /home/yao.eric/selective-attack/.venv/bin/activate
 MUS=(1 2 5 10 20)
 MU=${MUS[$SLURM_ARRAY_TASK_ID]}
 
-python attack/experiment.py \
+python experiments/experiment_v3.py \
   --model_name LLaVA-1.5-7b \
   --dataset_dir ./sorted \
   --output_dir ./attack_results/mu_$MU \

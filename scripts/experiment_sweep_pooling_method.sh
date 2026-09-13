@@ -15,7 +15,7 @@ source /home/yao.eric/selective-attack/.venv/bin/activate
 POOLS=(last_token mean image_only)  
 POOL=${POOLS[$SLURM_ARRAY_TASK_ID]}
 
-python attack/experiment.py \
+python experiments/experiment_v3.py \
   --model_name LLaVA-1.5-7b \
   --dataset_dir ./sorted \
   --output_dir ./attack_results/pooling_method_$POOL \

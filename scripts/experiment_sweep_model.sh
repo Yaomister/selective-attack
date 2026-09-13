@@ -15,7 +15,7 @@ source /home/yao.eric/selective-attack/.venv/bin/activate
 MODELS=(LLaVA-1.5-7b LLaVA-NeXT InternVL Qwen-VL)
 MODEL=${MODELS[$SLURM_ARRAY_TASK_ID]}
 
-python attack/experiment.py \
+python experiments/experiment_v3.py \
   --model_name $MODEL \
   --dataset_dir ./sorted \
   --output_dir ./attack_results/model_$MODEL \

@@ -12,10 +12,10 @@ mkdir -p logs
 
 source /home/yao.eric/selective-attack/.venv/bin/activate
 
-EPSILONS=(0.25 0.5 0.75 1 1.25)
+EPSILONS=(0.03 0.06 0.09 0.12)
 EPSILON=${EPSILONS[$SLURM_ARRAY_TASK_ID]}
 
-python attack/experiment.py \
+python experiments/experiment_v3.py \
   --model_name LLaVA-1.5-7b \
   --dataset_dir ./sorted \
   --output_dir ./attack_results/epsilon_$EPSILON \
