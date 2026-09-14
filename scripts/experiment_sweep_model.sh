@@ -6,7 +6,7 @@
 #SBATCH --mem=48G
 #SBATCH --time=08:00:00
 #SBATCH --output=logs/mu_%A_%a.out
-#SBATCH --array=0-4
+#SBATCH --array=0-3
 
 mkdir -p logs
 
