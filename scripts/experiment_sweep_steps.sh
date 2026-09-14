@@ -20,7 +20,7 @@ python experiments/experiment_v3.py \
   --dataset_dir ./sorted \
   --output_dir ./attack_results/STEP_$STEP \
   --steps $STEP \
-  --epsilon 1 \
+  --epsilon 0.025 \
   --alpha 0.001 \
   --mu 10 \
   --layer_from_last -1 \
