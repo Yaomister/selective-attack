@@ -22,6 +22,9 @@ python experiments/experiment_v3.py \
   --steps 200 \
   --epsilon 1 \
   --alpha 0.001 \
-  --mu $MU \
+  --mu 10 \
   --layer_from_last -1 \
   --pooling_method $POOL
+
+
+  

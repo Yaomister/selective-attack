@@ -18,7 +18,7 @@ LAYER=${LAYERS[$SLURM_ARRAY_TASK_ID]}
 python experiments/experiment_v3.py \
   --model_name LLaVA-1.5-7b \
   --dataset_dir ./sorted \
-  --output_dir ./attack_results/pooling_method_$POOL \
+  --output_dir ./attack_results/pooling_method_$LAYER \
   --steps 200 \
   --epsilon 1 \
   --alpha 0.001 \
