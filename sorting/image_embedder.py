@@ -13,13 +13,13 @@ from datetime import datetime
 
 import torch
 import clip
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 from tqdm import tqdm
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
-HARMFUL_INPUT_DIR = "../images/..."
-SAFE_INPUT_DIR    = "../images/..."
+HARMFUL_INPUT_DIR = "harmful_images"
+SAFE_INPUT_DIR    = "safe_images"
 
 
 MODEL      = "ViT-L/14"

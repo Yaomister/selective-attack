@@ -15,10 +15,10 @@ from flask import Flask, request, jsonify, send_from_directory, abort
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
-MATCHES_DIR      = "../matches"        # folder containing report.html + matches.json
-HARMFUL_IMG_DIR  = "../harmful_images" # original harmful images folder
-SAFE_IMG_DIR     = "../safe_images"    # original safe images folder
-SORTED_DIR       = "../sorted"         # where selected pairs will be copied to
+MATCHES_DIR      = "/Users/ericyao/Documents/projects/vlm-project/matches"        # folder containing report.html + matches.json
+HARMFUL_IMG_DIR  = "/Users/ericyao/Documents/projects/vlm-project/harmful_images" # original harmful images folder
+SAFE_IMG_DIR     = "/Users/ericyao/Documents/projects/vlm-project/safe_images"    # original safe images folder
+SORTED_DIR       = "/Users/ericyao/Documents/projects/vlm-project/sorted"         # where selected pairs will be copied to
 PORT             = 5000
 
 # ── SETUP ─────────────────────────────────────────────────────────────────────

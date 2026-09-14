@@ -20,11 +20,11 @@ from PIL import Image
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 EMBEDDINGS_DIR   = "../embeddings/ViT-L/14"     # folder from generate_embeddings.py
-HARMFUL_IMG_DIR  = "../harmful_images" # original harmful images folder
-SAFE_IMG_DIR     = "../safe_images"    # original safe images folder
-OUTPUT_DIR       = "../matches"        # where results will be saved
+HARMFUL_IMG_DIR  = "harmful_images" # original harmful images folder
+SAFE_IMG_DIR     = "safe_images"    # original safe images folder
+OUTPUT_DIR       = "matches"        # where results will be saved
 
-TOP_K            = 5                  # number of safe matches per harmful image
+TOP_K            = 10                  # number of safe matches per harmful image
 MIN_SIMILARITY   = 0.20              # drop matches below this cosine similarity
 
 # ── SETUP ─────────────────────────────────────────────────────────────────────
